@@ -1,0 +1,434 @@
+{
+  "company_profile": {
+    "name": "REI Nationwide LLC",
+    "structure": "LLC",
+    "operating_model": "High-velocity distressed 'conveyor belt'",
+    "market": "Nationwide (US)",
+    "tagline": "300 doors retained + 300 wholesale + 100 retail listings/year"
+  },
+  "business_model": {
+    "primary_strategies": [
+      {
+        "id": "internal_dscr",
+        "name": "Internal Acquisition (DSCR Refi)",
+        "description": "Buy, light rehab, stabilize, refinance into long-term hold.",
+        "target_volume": 300,
+        "capital_source": "M Capital (100% funding)",
+        "target_net_rent_per_door": 175,
+        "priority": 1,
+        "color": "#4ade80"
+      },
+      {
+        "id": "wholesale",
+        "name": "Wholesale Disposition",
+        "description": "Assign contract to cash buyer.",
+        "target_volume": 300,
+        "fee_target": 30000,
+        "priority": 2,
+        "color": "#3b82f6"
+      },
+      {
+        "id": "retail_listing",
+        "name": "Retail Listing / Novation",
+        "description": "List on MLS via internal agency/novation agreement.",
+        "target_volume": 100,
+        "commission_rate": 0.03,
+        "avg_list_price": 250000,
+        "priority": 3,
+        "color": "#f59e0b"
+      },
+      {
+        "id": "membership_dfy",
+        "name": "Membership (Done-For-You)",
+        "description": "Full service acquisition/rehab/mgmt for clients.",
+        "price_point": 15000,
+        "target_volume": 150,
+        "priority": 4,
+        "color": "#8b5cf6"
+      }
+    ]
+  },
+  "deal_criteria": {
+    "purchase_targets": {
+      "dscr_buy_max_arv_pct": 0.45,
+      "dscr_buy_max_arv_pct_display": "45%",
+      "subto_consideration_threshold_arv_pct": 0.45,
+      "subto_note": "Evaluated if ARV % exceeds 45% but cashflow exists (pending strict model)"
+    },
+    "timeline_requirements": {
+      "m_capital_deal_cycle_days": 45,
+      "rehab_timeline_max_days": 15,
+      "total_cycle_time_days": 60
+    },
+    "financial_minimums": {
+      "min_wholesale_fee": 30000,
+      "min_flip_profit": 50000,
+      "target_net_rent_per_door": 175,
+      "min_net_rent_per_door": 150
+    },
+    "deal_size_constraints": {
+      "avg_listing_price": 250000,
+      "max_rehab_budget": 20000,
+      "typical_arv_range": [150000, 350000]
+    }
+  },
+  "exit_analysis_rules": {
+    "decision_tree": [
+      {
+        "id": "route_internal",
+        "condition": "Purchase Price <= 45% ARV AND Rehab <= $20k",
+        "condition_logic": {
+          "purchase_pct_arv_max": 0.45,
+          "rehab_budget_max": 20000,
+          "operator": "AND"
+        },
+        "action": "ROUTE_TO_INTERNAL_DSCR",
+        "priority": 1,
+        "score": "GREEN",
+        "expected_outcome": "300 doors/year retained"
+      },
+      {
+        "id": "route_wholesale",
+        "condition": "Purchase Price > 45% ARV OR Rehab > $20k",
+        "condition_logic": {
+          "purchase_pct_arv_min": 0.45,
+          "rehab_budget_min": 20000,
+          "operator": "OR"
+        },
+        "action": "ROUTE_TO_WHOLESALE",
+        "priority": 2,
+        "score": "YELLOW",
+        "expected_outcome": "$30k assignment fee"
+      },
+      {
+        "id": "route_retail",
+        "condition": "Property is retail-ready OR Seller needs high net",
+        "condition_logic": {
+          "retail_ready": true,
+          "seller_net_requirement_high": true,
+          "operator": "OR"
+        },
+        "action": "ROUTE_TO_RETAIL_LISTING",
+        "priority": 3,
+        "score": "YELLOW",
+        "expected_outcome": "3% commission on ~$250k listing"
+      }
+    ],
+    "subto_logic": {
+      "description": "Used when purchase price is too high for cash buy but existing debt allows cashflow",
+      "status": "pending_strict_model_definition",
+      "evaluation_criteria": [
+        "Existing debt serviceable",
+        "Positive cashflow after PITI",
+        "Seller willing to leave loan in place"
+      ]
+    },
+    "fallout_routing": {
+      "description": "Deals that don't fit any chute",
+      "fallout_rate": 0.20,
+      "fallout_per_week_target": 3.6,
+      "action": "Archive or refer to partners"
+    }
+  },
+  "underwriting_parameters": {
+    "rehab_costs": {
+      "max_allowable": 20000,
+      "scope_type": "Light/Cosmetic only",
+      "cost_tiers": {
+        "light_refresh": {
+          "psf_range": [5, 15],
+          "description": "Paint, clean, minor repairs",
+          "typical_total": [3000, 10000]
+        },
+        "cosmetic": {
+          "psf_range": [15, 35],
+          "description": "Flooring, kitchen/bath updates, paint",
+          "typical_total": [10000, 20000]
+        },
+        "gut_rehab": {
+          "psf_range": [50, 100],
+          "description": "Full renovation - NOT ACCEPTABLE for M Capital model",
+          "typical_total": [30000, 150000],
+          "status": "REJECT"
+        }
+      },
+      "process": "Bids secured pre-acquisition",
+      "contingency_buffer": 0.10,
+      "approval_required_above": 20000
+    },
+    "capital_costs": {
+      "lender": "M Capital",
+      "cost_structure": "Flat fee model (approx 15% per deal)",
+      "target_annual_roi_to_lender": 1.00,
+      "funding_limit": "100% of Purchase + Rehab",
+      "typical_fee_per_deal": 13500,
+      "deal_cycle_days": 45
+    },
+    "holding_costs": {
+      "formula": "Purchase Price × 0.01 × (months held)",
+      "typical_per_month_rate": 0.01,
+      "utilities_per_month": 150,
+      "insurance_per_month": 100,
+      "taxes_annual_rate": 0.015,
+      "hoa_typical": 0
+    },
+    "operational_costs": {
+      "lead_cost_cpl": 100,
+      "internal_acq_fee": 30000,
+      "property_management_fee_rate": 0.10,
+      "dispo_commission_rate": 0.05,
+      "closing_costs_buy_rate": 0.03,
+      "closing_costs_sell_rate": 0.01
+    },
+    "arv_validation": {
+      "comp_sources": ["MLS recent sales within 0.5 mile", "Zillow/Redfin estimates", "Local broker BPO"],
+      "arv_confidence_levels": {
+        "high": "3+ sold comps within 90 days, <0.5mi, <10% sqft variance",
+        "medium": "2 comps within 6 months, <1mi",
+        "low": "Limited comps, use conservative discount"
+      },
+      "arv_discount_for_low_confidence": 0.10
+    },
+    "rent_validation": {
+      "sources": ["Rentometer", "Zillow Rent Zestimate", "Property Manager feedback"],
+      "min_dscr": 1.25,
+      "target_dscr": 1.30,
+      "piti_calculation": "Mortgage + Tax + Insurance + HOA",
+      "target_net_cashflow_per_month": 175
+    },
+    "scoring": {
+      "green_deal": {
+        "criteria": [
+          "Buy <= 45% ARV",
+          "Rehab <= $20k",
+          "45-day turn possible",
+          "Net rent >= $175/month",
+          "DSCR >= 1.30"
+        ],
+        "action": "Route to Internal DSCR",
+        "color": "#4ade80"
+      },
+      "yellow_deal": {
+        "criteria": [
+          "Buy 45-55% ARV OR Rehab $20k-$30k",
+          "Can wholesale for $30k+ fee",
+          "No major structural issues"
+        ],
+        "action": "Route to Wholesale",
+        "color": "#f59e0b"
+      },
+      "red_deal": {
+        "criteria": [
+          "Rehab > $30k",
+          "Structural issues",
+          "Timeline > 60 days",
+          "Buy > 55% ARV with no wholesale market"
+        ],
+        "action": "REJECT - Archive",
+        "color": "#ef4444"
+      }
+    }
+  },
+  "integrations": {
+    "crm": {
+      "name": "Left Main (Salesforce)",
+      "purpose": "Lead management, pipeline tracking"
+    },
+    "marketing": {
+      "name": "PPC (Leadzolo)",
+      "weekly_spend": 34400,
+      "target_cpl": 100
+    },
+    "hosting": {
+      "platform": "Vercel / Netlify",
+      "purpose": "Dashboard and web apps"
+    },
+    "framework": {
+      "current": "Python / Streamlit",
+      "future": "React / Next.js (optional)"
+    },
+    "data_sources": {
+      "property_data": ["RealEstateAPI", "Zillow API", "Redfin"],
+      "comps": ["MLS access", "PropStream", "RealEstateAPI"],
+      "rent_estimates": ["Rentometer API", "Zillow Rent Zestimate"]
+    }
+  },
+  "underwriting_workflow": {
+    "steps": [
+      {
+        "step": 1,
+        "name": "Lead Intake",
+        "description": "Lead comes from PPC/marketing",
+        "responsible": "Closer",
+        "output": "Basic property info (address, seller asking, condition notes)"
+      },
+      {
+        "step": 2,
+        "name": "Initial Screen",
+        "description": "Quick ARV lookup, preliminary offer range",
+        "responsible": "Closer",
+        "tools": ["Zillow", "Redfin", "RealEstateAPI"],
+        "decision_point": "Does it fit 45% ARV model? If no, skip to wholesale routing."
+      },
+      {
+        "step": 3,
+        "name": "Full Underwrite",
+        "description": "Detailed comp analysis, rehab walkthrough, rent validation",
+        "responsible": "Underwriter",
+        "output": "Full underwriting package with Green/Yellow/Red score"
+      },
+      {
+        "step": 4,
+        "name": "Offer Presentation",
+        "description": "Present offer to seller",
+        "responsible": "Closer",
+        "output": "Signed purchase agreement OR counter OR rejection"
+      },
+      {
+        "step": 5,
+        "name": "Contract to Close",
+        "description": "Route to appropriate chute",
+        "responsible": "TC (Transaction Coordinator)",
+        "routing": {
+          "green_dscr": "Send to M Capital, rehab contractor, PM",
+          "yellow_wholesale": "Send to dispo agent, blast to buyer list",
+          "yellow_retail": "Send to listing agent, MLS prep"
+        }
+      }
+    ],
+    "offer_to_contract_ratio": 4.0,
+    "contract_to_close_rate": 0.80,
+    "target_contracts_per_week": 18
+  },
+  "roi_targets": {
+    "m_capital_annual_roi": 1.00,
+    "m_capital_roi_display": "100% annual return (2x in 12 months)",
+    "hamza_noi_share": 0.25,
+    "clearroute_noi_share": 0.20,
+    "company_noi_target": 4000000,
+    "company_gross_revenue_target": 19000000
+  },
+  "validation_rules": {
+    "arv_min": 50000,
+    "arv_max": 1000000,
+    "purchase_price_min": 10000,
+    "purchase_price_max": 500000,
+    "rehab_budget_min": 0,
+    "rehab_budget_max": 20000,
+    "sqft_min": 500,
+    "sqft_max": 5000,
+    "rent_min": 500,
+    "rent_max": 5000,
+    "deal_score_required": ["GREEN", "YELLOW", "RED"]
+  },
+  "ui_configuration": {
+    "underwriting_form_fields": [
+      {
+        "field": "address",
+        "label": "Property Address",
+        "type": "text",
+        "required": true,
+        "placeholder": "123 Main St, City, State ZIP"
+      },
+      {
+        "field": "arv",
+        "label": "After Repair Value (ARV)",
+        "type": "currency",
+        "required": true,
+        "help_text": "Estimated market value after repairs"
+      },
+      {
+        "field": "purchase_price",
+        "label": "Purchase Price",
+        "type": "currency",
+        "required": true,
+        "help_text": "Offer price to seller"
+      },
+      {
+        "field": "rehab_budget",
+        "label": "Rehab Budget",
+        "type": "currency",
+        "required": true,
+        "max": 20000,
+        "help_text": "Max $20k for M Capital model"
+      },
+      {
+        "field": "sqft",
+        "label": "Square Footage",
+        "type": "number",
+        "required": true
+      },
+      {
+        "field": "bedrooms",
+        "label": "Bedrooms",
+        "type": "number",
+        "required": false
+      },
+      {
+        "field": "bathrooms",
+        "label": "Bathrooms",
+        "type": "number",
+        "required": false
+      },
+      {
+        "field": "estimated_rent",
+        "label": "Estimated Monthly Rent",
+        "type": "currency",
+        "required": true,
+        "help_text": "Market rent after stabilization"
+      },
+      {
+        "field": "holding_months",
+        "label": "Holding Period (months)",
+        "type": "number",
+        "default": 2,
+        "help_text": "Typical: 1.5-2 months for light rehab"
+      },
+      {
+        "field": "property_condition",
+        "label": "Property Condition",
+        "type": "select",
+        "options": ["Retail Ready", "Light Cosmetic", "Heavy Rehab", "Gut Required"],
+        "required": true
+      },
+      {
+        "field": "seller_motivation",
+        "label": "Seller Motivation",
+        "type": "select",
+        "options": ["Very High", "High", "Medium", "Low"],
+        "required": false
+      },
+      {
+        "field": "notes",
+        "label": "Additional Notes",
+        "type": "textarea",
+        "required": false
+      }
+    ],
+    "output_display": {
+      "show_purchase_pct_arv": true,
+      "show_all_in_cost": true,
+      "show_projected_cashflow": true,
+      "show_dscr": true,
+      "show_wholesale_fee_potential": true,
+      "show_deal_score": true,
+      "show_recommended_exit": true,
+      "color_code_by_score": true
+    }
+  },
+  "formulas": {
+    "purchase_pct_arv": "Purchase Price / ARV",
+    "all_in_cost": "Purchase Price + Rehab Budget + Holding Costs + Closing Costs",
+    "holding_costs": "Purchase Price × 0.01 × Holding Months + (Utilities + Insurance) × Holding Months",
+    "closing_costs_buy": "Purchase Price × 0.03",
+    "closing_costs_sell": "ARV × 0.01",
+    "gross_profit": "ARV - All In Cost",
+    "piti": "(Loan Amount × Monthly Rate) + (Annual Taxes / 12) + (Annual Insurance / 12)",
+    "dscr": "Monthly Rent / PITI",
+    "net_cashflow": "Monthly Rent - PITI - (PM Fee)",
+    "wholesale_fee": "ARV × 0.70 - Purchase Price - Assignment Buffer",
+    "roi_annual": "(Net Cashflow × 12) / All In Cost"
+  },
+  "version": "1.0",
+  "last_updated": "2026-01-07"
+}
