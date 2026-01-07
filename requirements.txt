@@ -2,3 +2,7 @@ streamlit>=1.28.0
 pandas>=2.0.0
 plotly>=5.18.0
 numpy>=1.24.0
+
+# Optional: PDF Export (uncomment to enable)
+# weasyprint>=60.0  # For PDF generation (requires system dependencies: cairo, pango)
+# pdfkit>=1.0.0     # Alternative PDF generator (requires wkhtmltopdf binary)
