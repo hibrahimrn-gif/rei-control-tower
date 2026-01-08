@@ -3,10 +3,15 @@ REI Nationwide LLC - Deal Underwriter
 Individual property underwriting calculator with routing recommendations
 """
 
-import streamlit as st
 import json
+import os
 import sys
 from pathlib import Path
+
+from typing import List, Optional
+
+import requests
+import streamlit as st
 
 # Add components to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -88,6 +93,99 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+KEY_CANDIDATES = {
+    "arv": ["arv", "after repair value", "after_repair_value", "estimatedvalue", "avm", "marketvalue"],
+    "rent": ["rent", "estimatedrent", "rentzestimate", "marketrent", "monthlyrent"],
+    "sqft": ["livingarea", "squarefootage", "sqft", "buildingarea", "area"],
+}
+
+
+def init_deal_state():
+    """Initialize session state for deal inputs and API responses."""
+    defaults = {
+        "deal_address": "",
+        "deal_arv": 180000,
+        "deal_purchase_price": 75000,
+        "deal_rehab_budget": 12000,
+        "deal_sqft": 1200,
+        "deal_estimated_rent": 1400,
+        "deal_holding_months": 2.0,
+        "deal_bedrooms": 3,
+        "deal_bathrooms": 2.0,
+        "deal_condition": "Light Cosmetic",
+        "deal_notes": "",
+        "realestate_response": None,
+        "proplab_response": None,
+    }
+
+    for key, value in defaults.items():
+        st.session_state.setdefault(key, value)
+
+
+def build_url(base_url: str, endpoint: str) -> str:
+    """Join base URL and endpoint path."""
+    return f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+
+
+def fetch_realestate_data(
+    base_url: str,
+    endpoint: str,
+    api_key: str,
+    api_key_header: str,
+    address_param: str,
+    address: str,
+) -> dict:
+    """Fetch property data from a RealEstate API endpoint."""
+    url = build_url(base_url, endpoint)
+    headers = {api_key_header: api_key} if api_key and api_key_header else {}
+    params = {address_param: address} if address_param else {"address": address}
+    response = requests.get(url, headers=headers, params=params, timeout=20)
+    response.raise_for_status()
+    return response.json()
+
+
+def walk_json(obj):
+    """Yield (key, value) pairs from nested JSON-like data."""
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            yield key, value
+            yield from walk_json(value)
+    elif isinstance(obj, list):
+        for item in obj:
+            yield from walk_json(item)
+
+
+def extract_numeric_value(payload: dict, candidates: List[str]) -> Optional[float]:
+    """Extract a numeric value from JSON using candidate key matches."""
+    normalized = [candidate.lower() for candidate in candidates]
+    for key, value in walk_json(payload):
+        if not isinstance(key, str):
+            continue
+        key_lower = key.replace(" ", "").replace("_", "").lower()
+        if any(candidate in key_lower for candidate in normalized):
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                cleaned = value.replace("$", "").replace(",", "").strip()
+                try:
+                    return float(cleaned)
+                except ValueError:
+                    continue
+    return None
+
+
+def fetch_proplab_underwrite(address: str, template_id: int, api_key: str) -> dict:
+    """Send an underwriting request to Proplab AI."""
+    url = "https://proplab.app/api/v1/underwrite"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {"templateId": template_id, "property": {"address": address}}
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
+    response.raise_for_status()
+    return response.json()
 
 
 def calculate_underwriting(inputs: dict) -> dict:
@@ -211,6 +309,7 @@ def calculate_underwriting(inputs: dict) -> dict:
 
 def main():
     """Main underwriting calculator page"""
+    init_deal_state()
 
     st.title("🏠 Deal Underwriter")
     st.markdown("*Individual Property Underwriting Calculator with Routing Recommendations*")
@@ -245,6 +344,57 @@ def main():
         """)
 
     # Two-column layout: Input form on left, results on right
+    with st.sidebar:
+        st.markdown("## 🔌 API Integrations")
+
+        st.markdown("### Proplab AI")
+        st.text_input(
+            "Proplab API Key",
+            type="password",
+            value=os.getenv("PROPLAB_API_KEY", ""),
+            key="proplab_api_key",
+            help="Set PROPLAB_API_KEY in your environment to auto-fill.",
+        )
+        st.number_input(
+            "Deal Template ID",
+            min_value=1,
+            step=1,
+            value=int(os.getenv("PROPLAB_TEMPLATE_ID", "183")),
+            key="proplab_template_id",
+        )
+
+        st.markdown("### RealEstate API")
+        st.text_input(
+            "Base URL",
+            value=os.getenv("REALESTATE_API_URL", "https://api.realestateapi.com"),
+            key="realestate_base_url",
+        )
+        st.text_input(
+            "Endpoint Path",
+            value=os.getenv("REALESTATE_API_ENDPOINT", "/v2/PropertySearch"),
+            key="realestate_endpoint",
+        )
+        st.text_input(
+            "API Key Header",
+            value=os.getenv("REALESTATE_API_HEADER", "x-api-key"),
+            key="realestate_api_header",
+        )
+        st.text_input(
+            "RealEstate API Key",
+            type="password",
+            value=os.getenv("REALESTATE_API_KEY", ""),
+            key="realestate_api_key",
+        )
+        st.text_input(
+            "Address Param",
+            value=os.getenv("REALESTATE_API_ADDRESS_PARAM", "address"),
+            key="realestate_address_param",
+        )
+
+        st.caption(
+            "Tip: Add your keys as environment variables to keep them out of the UI."
+        )
+
     col_input, col_output = st.columns([1, 1])
 
     with col_input:
@@ -254,7 +404,8 @@ def main():
         address = st.text_input(
             "Property Address",
             placeholder="123 Main St, City, State ZIP",
-            help="Full property address"
+            help="Full property address",
+            key="deal_address",
         )
 
         col1, col2 = st.columns(2)
@@ -263,55 +414,61 @@ def main():
             arv = st.number_input(
                 "ARV (After Repair Value)",
                 min_value=0,
-                value=180000,
+                value=st.session_state.deal_arv,
                 step=5000,
                 format="%d",
-                help="Estimated market value after repairs"
+                help="Estimated market value after repairs",
+                key="deal_arv",
             )
 
             purchase_price = st.number_input(
                 "Purchase Price",
                 min_value=0,
-                value=75000,
+                value=st.session_state.deal_purchase_price,
                 step=1000,
                 format="%d",
-                help="Offer price to seller"
+                help="Offer price to seller",
+                key="deal_purchase_price",
             )
 
             rehab_budget = st.number_input(
                 "Rehab Budget",
                 min_value=0,
-                value=12000,
+                value=st.session_state.deal_rehab_budget,
                 step=1000,
                 format="%d",
-                help="Max $20k for M Capital DSCR model"
+                help="Max $20k for M Capital DSCR model",
+                key="deal_rehab_budget",
             )
 
         with col2:
             sqft = st.number_input(
                 "Square Footage",
                 min_value=0,
-                value=1200,
+                value=st.session_state.deal_sqft,
                 step=50,
-                format="%d"
+                format="%d",
+                key="deal_sqft",
             )
 
             estimated_rent = st.number_input(
                 "Est. Monthly Rent",
                 min_value=0,
-                value=1400,
+                value=st.session_state.deal_estimated_rent,
                 step=50,
                 format="%d",
-                help="Market rent after stabilization"
+                help="Market rent after stabilization",
+                key="deal_estimated_rent",
             )
 
             holding_months = st.number_input(
                 "Holding Period (months)",
                 min_value=0.5,
                 max_value=12.0,
-                value=2.0,
+                value=float(st.session_state.deal_holding_months),
                 step=0.5,
-                help="Typical: 1.5-2 months for light rehab"
+                help="Typical: 1.5-2 months for light rehab",
+                key="deal_holding_months",
             )
 
         # Additional details
@@ -320,22 +477,76 @@ def main():
         col3, col4, col5 = st.columns(3)
 
         with col3:
-            bedrooms = st.number_input("Bedrooms", min_value=1, value=3, step=1)
+            bedrooms = st.number_input(
+                "Bedrooms",
+                min_value=1,
+                value=st.session_state.deal_bedrooms,
+                step=1,
+                key="deal_bedrooms",
+            )
 
         with col4:
-            bathrooms = st.number_input("Bathrooms", min_value=1.0, value=2.0, step=0.5)
+            bathrooms = st.number_input(
+                "Bathrooms",
+                min_value=1.0,
+                value=st.session_state.deal_bathrooms,
+                step=0.5,
+                key="deal_bathrooms",
+            )
 
         with col5:
             condition = st.selectbox(
                 "Condition",
-                ["Retail Ready", "Light Cosmetic", "Heavy Rehab", "Gut Required"]
+                ["Retail Ready", "Light Cosmetic", "Heavy Rehab", "Gut Required"],
+                index=["Retail Ready", "Light Cosmetic", "Heavy Rehab", "Gut Required"].index(
+                    st.session_state.deal_condition
+                ),
+                key="deal_condition",
             )
 
         notes = st.text_area(
             "Additional Notes",
             placeholder="Seller motivation, unique features, issues found...",
-            height=100
+            height=100,
+            key="deal_notes",
         )
+
+        st.markdown("### 🔎 RealEstate API Lookup")
+
+        if st.button("Pull Property Data", use_container_width=True):
+            if not address:
+                st.warning("Please enter a property address first.")
+            else:
+                try:
+                    with st.spinner("Fetching property data..."):
+                        payload = fetch_realestate_data(
+                            st.session_state.realestate_base_url,
+                            st.session_state.realestate_endpoint,
+                            st.session_state.realestate_api_key,
+                            st.session_state.realestate_api_header,
+                            st.session_state.realestate_address_param,
+                            address,
+                        )
+                    st.session_state.realestate_response = payload
+
+                    arv_value = extract_numeric_value(payload, KEY_CANDIDATES["arv"])
+                    rent_value = extract_numeric_value(payload, KEY_CANDIDATES["rent"])
+                    sqft_value = extract_numeric_value(payload, KEY_CANDIDATES["sqft"])
+
+                    if arv_value:
+                        st.session_state.deal_arv = int(arv_value)
+                    if rent_value:
+                        st.session_state.deal_estimated_rent = int(rent_value)
+                    if sqft_value:
+                        st.session_state.deal_sqft = int(sqft_value)
+
+                    st.success("Property data loaded. Review the updated inputs.")
+                except requests.RequestException as exc:
+                    st.error(f"RealEstate API error: {exc}")
+
+        if st.session_state.realestate_response:
+            with st.expander("View RealEstate API Response", expanded=False):
+                st.json(st.session_state.realestate_response)
 
         # Calculate button
         calculate_btn = st.button("🔍 Analyze Deal", type="primary", use_container_width=True)
@@ -521,6 +732,31 @@ def main():
                 "ROI %",
                 f"{roi_pct:.1f}%"
             )
+
+        st.markdown("---")
+        st.markdown("### 🤖 Proplab AI Underwrite")
+
+        if st.button("Run Proplab Underwrite", use_container_width=True):
+            if not address:
+                st.warning("Enter a property address before running Proplab.")
+            elif not st.session_state.proplab_api_key:
+                st.warning("Add your Proplab API key in the sidebar.")
+            else:
+                try:
+                    with st.spinner("Submitting to Proplab AI..."):
+                        result = fetch_proplab_underwrite(
+                            address=address,
+                            template_id=int(st.session_state.proplab_template_id),
+                            api_key=st.session_state.proplab_api_key,
+                        )
+                    st.session_state.proplab_response = result
+                    st.success("Proplab underwriting complete.")
+                except requests.RequestException as exc:
+                    st.error(f"Proplab API error: {exc}")
+
+        if st.session_state.proplab_response:
+            st.markdown("#### Proplab Response")
+            st.json(st.session_state.proplab_response)
 
     # Save/Export section
     st.markdown("---")
