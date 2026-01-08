@@ -28,7 +28,8 @@ from components.wholesale_projection import (
     calculate_investor_distributions,
     generate_csv_export,
     format_currency,
-    get_risk_analysis
+    get_risk_analysis,
+    calculate_pod_scaling_schedule
 )
 
 st.set_page_config(
@@ -98,6 +99,12 @@ def main():
         use_lag = st.checkbox("Use Lagged Model (24-day close)", value=True)
         business_days = st.number_input("Business Days/Month", value=22, step=1)
 
+        st.subheader("Pod System")
+        pod_capacity = st.number_input("Files per Pod", value=50, step=5, format="%d")
+        pod_annual_cost = st.number_input("Pod Annual Cost ($)", value=50000, step=5000, format="%d")
+        buyers_daily = st.number_input("Buyers Added/Day (nationwide)", value=300, step=25, format="%d")
+        buyers_per_pod = st.number_input("Buyers/Pod/Day", value=100, step=10, format="%d")
+
     # Create custom inputs
     custom_inputs = WholesaleInputs(
         cac=cac,
@@ -105,6 +112,10 @@ def main():
         lead_to_close_days=lead_to_close,
         marketing_ladder=marketing_ladder,
         business_days_per_month=business_days,
+        pod_capacity=pod_capacity,
+        pod_annual_cost=pod_annual_cost,
+        buyers_added_daily=buyers_daily,
+        buyers_per_pod_daily=buyers_per_pod,
         scenario_name="Custom"
     )
 
@@ -155,6 +166,38 @@ def main():
             help="Net Profit / Marketing Spend"
         )
 
+    # Pod System Metrics Row
+    st.markdown("###")
+    col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+
+    with col_p1:
+        st.metric(
+            "Max Pods Needed",
+            f"{custom_summary.max_pods_needed}",
+            help="Peak pod count at steady state"
+        )
+
+    with col_p2:
+        st.metric(
+            "Pod Overhead (12mo)",
+            format_currency(custom_summary.total_pod_overhead),
+            help="Total pod costs (investor covers)"
+        )
+
+    with col_p3:
+        st.metric(
+            "Total Investor Outlay",
+            format_currency(custom_summary.total_investor_outlay),
+            help="Marketing + Pod Overhead"
+        )
+
+    with col_p4:
+        st.metric(
+            "Avg Buyers/Deal",
+            f"{custom_summary.avg_buyer_coverage_ratio:.0f}x",
+            help="Buyer pipeline coverage ratio"
+        )
+
     st.markdown("---")
 
     # ==================== SECTION 2: 12-MONTH TABLE ====================
@@ -175,26 +218,28 @@ def main():
         df_data.append({
             "Month": p.month,
             "Marketing Spend": f"${p.marketing_spend:,.0f}",
-            "Deals Gen.": p.deals_generated_rounded,
             "Deals Closed": p.deals_closed_rounded,
             "Closings/Day": f"{p.closings_per_day:.1f}",
             "Gross Revenue": f"${p.gross_revenue:,.0f}",
-            "Principal Payback": f"${p.principal_payback_due:,.0f}",
             "Net Profit": f"${p.net_profit:,.0f}",
-            "Cumulative Profit": f"${p.cumulative_net_profit:,.0f}"
+            "Cumulative Profit": f"${p.cumulative_net_profit:,.0f}",
+            "Pods": p.pods_needed,
+            "Buyers Added": f"{p.buyers_added_monthly:,}",
+            "Buyers/Deal": f"{p.buyer_coverage_ratio:.0f}x"
         })
 
     # Add totals row
     df_data.append({
         "Month": "TOTAL",
         "Marketing Spend": format_currency(sum(p.marketing_spend for p in custom_projections)),
-        "Deals Gen.": sum(p.deals_generated_rounded for p in custom_projections),
         "Deals Closed": sum(p.deals_closed_rounded for p in custom_projections),
         "Closings/Day": "N/A",
         "Gross Revenue": format_currency(sum(p.gross_revenue for p in custom_projections)),
-        "Principal Payback": format_currency(sum(p.principal_payback_due for p in custom_projections)),
         "Net Profit": format_currency(sum(p.net_profit for p in custom_projections)),
-        "Cumulative Profit": format_currency(custom_projections[-1].cumulative_net_profit)
+        "Cumulative Profit": format_currency(custom_projections[-1].cumulative_net_profit),
+        "Pods": f"MAX: {custom_summary.max_pods_needed}",
+        "Buyers Added": f"{custom_summary.total_buyers_added:,}",
+        "Buyers/Deal": f"AVG: {custom_summary.avg_buyer_coverage_ratio:.0f}x"
     })
 
     df = pd.DataFrame(df_data)
@@ -388,8 +433,61 @@ def main():
 
     st.markdown("---")
 
-    # ==================== SECTION 6: RISK ANALYSIS ====================
-    st.header("6. CFO Risk Analysis & Key Takeaways")
+    # ==================== SECTION 6: POD SCALING SCHEDULE ====================
+    st.header("6. Pod System Scaling Schedule")
+
+    pod_schedule = calculate_pod_scaling_schedule(custom_projections)
+
+    pod_df_data = []
+    for ps in pod_schedule:
+        pod_df_data.append({
+            "Month": ps["month"],
+            "Deals Closed": ps["deals_closed"],
+            "Pods Needed": ps["pods_needed"],
+            "Pods to Hire": ps["pods_to_hire"] if ps["pods_to_hire"] > 0 else "-",
+            "Monthly Pod Cost": f"${ps['monthly_pod_cost']:,.0f}",
+            "Buyers Added": f"{ps['buyers_added']:,}",
+            "Buyer/Deal": f"{ps['buyer_per_deal_ratio']:.0f}x"
+        })
+
+    pod_df = pd.DataFrame(pod_df_data)
+    st.dataframe(pod_df, use_container_width=True, hide_index=True)
+
+    # Pod scaling visualization
+    fig_pods = go.Figure()
+
+    fig_pods.add_trace(go.Bar(
+        x=[p["month"] for p in pod_schedule],
+        y=[p["pods_needed"] for p in pod_schedule],
+        name="Pods Needed",
+        marker_color="#3b82f6"
+    ))
+
+    fig_pods.add_trace(go.Scatter(
+        x=[p["month"] for p in pod_schedule],
+        y=[p["deals_closed"] for p in pod_schedule],
+        name="Deals Closed",
+        yaxis="y2",
+        mode="lines+markers",
+        line=dict(color="#4ade80", width=3)
+    ))
+
+    fig_pods.update_layout(
+        title="Pod Scaling vs Deal Volume",
+        xaxis_title="Month",
+        yaxis=dict(title="Pods", side="left"),
+        yaxis2=dict(title="Deals", side="right", overlaying="y"),
+        template="plotly_dark",
+        height=350,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02)
+    )
+
+    st.plotly_chart(fig_pods, use_container_width=True)
+
+    st.markdown("---")
+
+    # ==================== SECTION 7: RISK ANALYSIS ====================
+    st.header("7. CFO Risk Analysis & Key Takeaways")
 
     col_left, col_right = st.columns([1, 1])
 
@@ -403,8 +501,12 @@ def main():
 
         st.info(f"""
         **Volume at Scale**: By Month 6, you're closing **{custom_projections[5].deals_closed_rounded} deals/month**.
-        That's **{custom_projections[5].closings_per_day:.1f} closings per business day**.
-        This is factory-scale wholesaling.
+        That's **{custom_projections[5].closings_per_day:.1f} closings per business day** with **{custom_projections[5].pods_needed} pods**.
+        """)
+
+        st.success(f"""
+        **Buyer Pipeline**: {custom_summary.avg_buyer_coverage_ratio:.0f}x buyer coverage.
+        300+ buyers/day nationwide = **{custom_summary.total_buyers_added:,} total buyers** over 12 months.
         """)
 
         st.success(f"""
@@ -413,36 +515,47 @@ def main():
         """)
 
     with col_right:
-        st.subheader("Critical Risks")
+        st.subheader("Risk Status (with Pod System)")
 
-        risks = get_risk_analysis()
+        risks = get_risk_analysis(with_pod_system=True)
 
-        for risk in risks[:3]:  # Top 3 risks
+        for risk in risks:
+            status = risk.get('status', 'yellow')
+            if status == 'green':
+                icon = '✅'
+                card_style = 'background: linear-gradient(135deg, #14532d 0%, #052e16 100%); border-left: 4px solid #22c55e;'
+            elif status == 'yellow':
+                icon = '⚠️'
+                card_style = 'background: linear-gradient(135deg, #78350f 0%, #451a03 100%); border-left: 4px solid #f59e0b;'
+            else:
+                icon = '🔴'
+                card_style = 'background: linear-gradient(135deg, #7f1d1d 0%, #450a0a 100%); border-left: 4px solid #ef4444;'
+
             st.markdown(f"""
-            <div class="risk-card">
-                <strong>🔴 {risk['category']}</strong><br>
-                {risk['description']}<br>
-                <em style="color: #94a3b8;">Mitigation: {risk['mitigation']}</em>
+            <div style="{card_style} padding: 0.75rem; border-radius: 8px; margin-bottom: 0.5rem;">
+                <strong>{icon} {risk['category']}</strong><br>
+                <span style="font-size: 0.9em;">{risk['description']}</span><br>
+                <em style="color: #94a3b8; font-size: 0.85em;">{risk['mitigation']}</em>
             </div>
             """, unsafe_allow_html=True)
 
-    # Operational capacity warning
-    st.warning(f"""
-    **Operational Reality Check:**
+    # Updated operational summary
+    st.success(f"""
+    **Operational Summary (Pod System Active):**
 
-    At steady state (Months 6-12), you need:
-    - **{custom_projections[5].deals_closed_rounded} closed deals/month** = {custom_projections[5].closings_per_day:.1f}/day
-    - This requires a **massive dispo operation** (selling {custom_projections[5].deals_closed_rounded} contracts/month)
-    - Typical dispo rep handles 20-30 deals/month = **{max(1, round(custom_projections[5].deals_closed_rounded / 25))} dispo reps needed**
-    - Buyer list must absorb {custom_projections[5].deals_closed_rounded * 12:,} deals/year
+    At steady state (Months 6-12):
+    - **{custom_projections[5].deals_closed_rounded} deals/month** handled by **{custom_projections[5].pods_needed} pods** (50 files each)
+    - **{custom_projections[5].buyers_added_monthly:,} buyers added/month** = {custom_projections[5].buyer_coverage_ratio:.0f}x coverage per deal
+    - Pod overhead: **${custom_projections[5].pod_monthly_cost:,.0f}/month** (investor covers)
+    - Total investor commitment: **${custom_summary.total_investor_outlay/1e6:.1f}M** (marketing + pods)
 
-    The math works. The physics is the challenge.
+    ✅ **Dispo bottleneck SOLVED** with pod system + nationwide buyer acquisition.
     """)
 
     st.markdown("---")
 
-    # ==================== SECTION 7: NO-LAG COMPARISON ====================
-    st.header("7. Model Comparison: Lagged vs No-Lag")
+    # ==================== SECTION 8: NO-LAG COMPARISON ====================
+    st.header("8. Model Comparison: Lagged vs No-Lag")
 
     no_lag_projections = calculate_monthly_projections(custom_inputs, use_lag_model=False)
     no_lag_summary = calculate_scenario_summary(no_lag_projections, custom_inputs)

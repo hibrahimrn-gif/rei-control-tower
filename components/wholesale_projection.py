@@ -50,6 +50,12 @@ class WholesaleInputs:
     # Investor terms
     payback_days: int = 30  # Expected principal payback window
 
+    # Pod system configuration
+    pod_capacity: int = 50  # Files (deals) per pod
+    pod_annual_cost: float = 50000.0  # Annual salary cost per pod
+    buyers_added_daily: int = 300  # Total buyers added to list daily (nationwide)
+    buyers_per_pod_daily: int = 100  # Buyers each pod must add daily
+
     # Scenario name
     scenario_name: str = "Base Case"
 
@@ -71,6 +77,11 @@ class MonthlyProjection:
     principal_payback_due: float
     principal_remaining: float
     ending_cash: float
+    # Pod system metrics
+    pods_needed: int = 0
+    pod_monthly_cost: float = 0.0
+    buyers_added_monthly: int = 0
+    buyer_coverage_ratio: float = 0.0  # Buyers available per deal
 
 
 @dataclass
@@ -86,6 +97,12 @@ class ScenarioSummary:
     effective_cac: float
     effective_fee: float
     fallout_rate: float
+    # Pod system totals
+    max_pods_needed: int = 0
+    total_pod_overhead: float = 0.0  # Annual pod costs (investor covers)
+    total_investor_outlay: float = 0.0  # Marketing + Pod Overhead
+    total_buyers_added: int = 0
+    avg_buyer_coverage_ratio: float = 0.0
 
 
 def calculate_monthly_projections(
@@ -153,6 +170,20 @@ def calculate_monthly_projections(
         ending_cash = cumulative_profit if principal_remaining == 0 else max(0, gross_revenue - marketing_spend)
         cumulative_cash = cumulative_profit  # Simplified: net profit accumulates
 
+        # Pod system calculations
+        pods_needed = math.ceil(deals_closed_rounded / inputs.pod_capacity) if deals_closed_rounded > 0 else 1
+        pod_monthly_cost = pods_needed * (inputs.pod_annual_cost / 12)
+
+        # Buyer capacity: nationwide adds 300+/day, but pods also add 100/day each
+        # Total buyer acquisition = base nationwide + pod contribution
+        buyers_added_monthly = inputs.buyers_added_daily * inputs.business_days_per_month
+        # With pods active, each pod adds buyers too
+        pod_buyer_contribution = pods_needed * inputs.buyers_per_pod_daily * inputs.business_days_per_month
+        total_buyers_for_month = buyers_added_monthly + pod_buyer_contribution
+
+        # Buyer coverage ratio: how many buyers available per deal needing disposition
+        buyer_coverage_ratio = total_buyers_for_month / deals_closed_rounded if deals_closed_rounded > 0 else 0
+
         projections.append(MonthlyProjection(
             month=month,
             marketing_spend=marketing_spend,
@@ -167,7 +198,11 @@ def calculate_monthly_projections(
             cumulative_net_profit=cumulative_profit,
             principal_payback_due=principal_payback,
             principal_remaining=principal_remaining,
-            ending_cash=cumulative_profit
+            ending_cash=cumulative_profit,
+            pods_needed=pods_needed,
+            pod_monthly_cost=pod_monthly_cost,
+            buyers_added_monthly=total_buyers_for_month,
+            buyer_coverage_ratio=buyer_coverage_ratio
         ))
 
     return projections
@@ -186,6 +221,12 @@ def calculate_scenario_summary(
 
     roi = total_profit / total_spend if total_spend > 0 else 0
 
+    # Pod system totals
+    max_pods = max(p.pods_needed for p in projections)
+    total_pod_overhead = sum(p.pod_monthly_cost for p in projections)
+    total_buyers = sum(p.buyers_added_monthly for p in projections)
+    avg_buyer_ratio = sum(p.buyer_coverage_ratio for p in projections) / len(projections) if projections else 0
+
     return ScenarioSummary(
         scenario_name=inputs.scenario_name,
         total_marketing_spend=total_spend,
@@ -196,7 +237,12 @@ def calculate_scenario_summary(
         roi_multiple=roi,
         effective_cac=inputs.cac * inputs.cac_modifier,
         effective_fee=inputs.avg_assignment_fee * inputs.fee_modifier,
-        fallout_rate=inputs.fallout_rate
+        fallout_rate=inputs.fallout_rate,
+        max_pods_needed=max_pods,
+        total_pod_overhead=total_pod_overhead,
+        total_investor_outlay=total_spend + total_pod_overhead,
+        total_buyers_added=total_buyers,
+        avg_buyer_coverage_ratio=avg_buyer_ratio
     )
 
 
@@ -267,7 +313,7 @@ def calculate_investor_distributions(
     return distributions
 
 
-def generate_csv_export(projections: List[MonthlyProjection]) -> str:
+def generate_csv_export(projections: List[MonthlyProjection], include_pods: bool = True) -> str:
     """Generate CSV string for Google Sheets export"""
     headers = [
         "Month",
@@ -285,6 +331,14 @@ def generate_csv_export(projections: List[MonthlyProjection]) -> str:
         "Principal Remaining",
         "Ending Cash"
     ]
+
+    if include_pods:
+        headers.extend([
+            "Pods Needed",
+            "Pod Monthly Cost",
+            "Buyers Added",
+            "Buyer/Deal Ratio"
+        ])
 
     lines = [",".join(headers)]
 
@@ -305,6 +359,13 @@ def generate_csv_export(projections: List[MonthlyProjection]) -> str:
             f"{p.principal_remaining:.0f}",
             f"{p.ending_cash:.0f}"
         ]
+        if include_pods:
+            row.extend([
+                str(p.pods_needed),
+                f"{p.pod_monthly_cost:.0f}",
+                str(p.buyers_added_monthly),
+                f"{p.buyer_coverage_ratio:.1f}"
+            ])
         lines.append(",".join(row))
 
     # Add totals row
@@ -324,6 +385,13 @@ def generate_csv_export(projections: List[MonthlyProjection]) -> str:
         f"{projections[-1].principal_remaining:.0f}",
         f"{projections[-1].ending_cash:.0f}"
     ]
+    if include_pods:
+        totals.extend([
+            f"MAX: {max(p.pods_needed for p in projections)}",
+            f"{sum(p.pod_monthly_cost for p in projections):.0f}",
+            str(sum(p.buyers_added_monthly for p in projections)),
+            f"AVG: {sum(p.buyer_coverage_ratio for p in projections)/len(projections):.1f}"
+        ])
     lines.append(",".join(totals))
 
     return "\n".join(lines)
@@ -339,32 +407,98 @@ def format_currency(value: float) -> str:
         return f"${value:.0f}"
 
 
-def get_risk_analysis() -> List[Dict[str, str]]:
+def get_risk_analysis(with_pod_system: bool = True) -> List[Dict[str, str]]:
     """Return list of key risks and considerations"""
-    return [
-        {
-            "category": "Dispo Bottleneck (Operational)",
-            "description": "343 contracts/month = 16 deals/day. Requires massive buyers list and dispo team.",
-            "mitigation": "Build buyer pipeline in parallel; consider JV partnerships for overflow."
-        },
-        {
-            "category": "CAC Creep at Scale",
-            "description": "$3,500 CAC benchmarked at low spend may double at $1.2M/month due to audience saturation.",
-            "mitigation": "Monitor CAC weekly; diversify channels; maintain creative refresh cadence."
-        },
-        {
-            "category": "Cash Timing vs 30-Day Payback",
-            "description": "Title delays, buyer financing issues can stretch actual close beyond 30 days.",
-            "mitigation": "Build 15-day buffer into projections; negotiate flexible payback terms."
-        },
-        {
-            "category": "Market Saturation",
-            "description": "Aggressive spend in single market can exhaust seller inventory.",
-            "mitigation": "Geographic expansion plan; multi-market launch by month 6."
-        },
-        {
-            "category": "Buyer Capacity",
-            "description": "Wholesale volume assumes unlimited buyer demand at target spreads.",
-            "mitigation": "Pre-qualify institutional buyers; develop retail investor network."
-        }
-    ]
+    if with_pod_system:
+        return [
+            {
+                "category": "Dispo Bottleneck (MITIGATED)",
+                "description": "Pod system + 300 buyers/day nationwide SOLVES dispo capacity. ~20+ buyers available per deal.",
+                "mitigation": "✅ Pod system in place. Monitor buyer quality and deal-to-buyer match rate.",
+                "status": "green"
+            },
+            {
+                "category": "CAC Creep at Scale",
+                "description": "$3,500 CAC benchmarked at low spend may increase at $1.2M/month due to audience saturation.",
+                "mitigation": "Nationwide footprint diversifies risk. Monitor CAC by market; rotate creative weekly.",
+                "status": "yellow"
+            },
+            {
+                "category": "Cash Timing vs 30-Day Payback",
+                "description": "Title delays, buyer financing issues can stretch actual close beyond 30 days.",
+                "mitigation": "Build 15-day buffer into projections; negotiate flexible payback terms.",
+                "status": "yellow"
+            },
+            {
+                "category": "Market Saturation (MITIGATED)",
+                "description": "Nationwide operation = no single market dependency. Seller inventory distributed.",
+                "mitigation": "✅ Already nationwide. Monitor per-market CAC for early saturation signals.",
+                "status": "green"
+            },
+            {
+                "category": "Buyer Capacity (MITIGATED)",
+                "description": "300+ buyers/day + pod buyer acquisition = 8,800+ new buyers/month at steady state.",
+                "mitigation": "✅ Buyer pipeline exceeds deal flow by 20x+. Focus on buyer quality over quantity.",
+                "status": "green"
+            },
+            {
+                "category": "Pod Scaling Speed",
+                "description": "Ramping from 1 pod to 7 pods in 6 months requires hiring pipeline.",
+                "mitigation": "Start recruiting Month 1 for Month 3+ needs. Build bench of 2 pods ahead.",
+                "status": "yellow"
+            }
+        ]
+    else:
+        return [
+            {
+                "category": "Dispo Bottleneck (Operational)",
+                "description": "343 contracts/month = 16 deals/day. Requires massive buyers list and dispo team.",
+                "mitigation": "Build buyer pipeline in parallel; consider JV partnerships for overflow.",
+                "status": "red"
+            },
+            {
+                "category": "CAC Creep at Scale",
+                "description": "$3,500 CAC benchmarked at low spend may double at $1.2M/month due to audience saturation.",
+                "mitigation": "Monitor CAC weekly; diversify channels; maintain creative refresh cadence.",
+                "status": "red"
+            },
+            {
+                "category": "Cash Timing vs 30-Day Payback",
+                "description": "Title delays, buyer financing issues can stretch actual close beyond 30 days.",
+                "mitigation": "Build 15-day buffer into projections; negotiate flexible payback terms.",
+                "status": "yellow"
+            },
+            {
+                "category": "Market Saturation",
+                "description": "Aggressive spend in single market can exhaust seller inventory.",
+                "mitigation": "Geographic expansion plan; multi-market launch by month 6.",
+                "status": "red"
+            },
+            {
+                "category": "Buyer Capacity",
+                "description": "Wholesale volume assumes unlimited buyer demand at target spreads.",
+                "mitigation": "Pre-qualify institutional buyers; develop retail investor network.",
+                "status": "red"
+            }
+        ]
+
+
+def calculate_pod_scaling_schedule(projections: List[MonthlyProjection]) -> List[Dict]:
+    """Generate pod scaling schedule by month"""
+    schedule = []
+    prev_pods = 0
+
+    for p in projections:
+        delta = p.pods_needed - prev_pods
+        schedule.append({
+            "month": p.month,
+            "deals_closed": p.deals_closed_rounded,
+            "pods_needed": p.pods_needed,
+            "pods_to_hire": max(0, delta),
+            "monthly_pod_cost": p.pod_monthly_cost,
+            "buyers_added": p.buyers_added_monthly,
+            "buyer_per_deal_ratio": p.buyer_coverage_ratio
+        })
+        prev_pods = p.pods_needed
+
+    return schedule
